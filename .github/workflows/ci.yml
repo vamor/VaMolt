@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  java:
+    name: Java services — build & test (JDK 21)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Pick Maven command (wrapper if present)
+        run: |
+          if [ -x "./mvnw" ]; then
+            echo "MVN=./mvnw" >> $GITHUB_ENV
+          else
+            echo "MVN=mvn" >> $GITHUB_ENV
+          fi
+
+      - name: Build & test all Maven projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Vind alle pom.xml behalve die in web-ui/ (front-end)
+          mapfile -d '' POMS < <(find . -name pom.xml -not -path "./web-ui/*" -print0)
+          if [ ${#POMS[@]} -eq 0 ]; then
+            echo "Geen Maven-projecten gevonden." >&2
+            exit 1
+          fi
+          # Als er een root-aggregator is met <modules>, is 1x aanroepen genoeg.
+          # We proberen eerst root, anders itereren we over elk pom.
+          if [ -f "./pom.xml" ]; then
+            echo "Probeer root build..."
+            if $MVN -B -ntp -DskipTests=false -DskipITs=false verify; then
+              exit 0
+            else
+              echo "Root build faalde, val terug op per-module build..."
+            fi
+          fi
+          status=0
+          for pom in "${POMS[@]}"; do
+            dir="$(dirname "$pom")"
+            echo "?? Building $dir"
+            ( cd "$dir" && $MVN -B -ntp -DskipTests=false -DskipITs=false verify ) || status=1
+          done
+          exit $status
+
+  web:
+    name: Web UI — lint, test, build (Node 20)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-ui
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
+
+      - name: Install dependencies (CI, reproducible)
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Test
+        env:
+          CI: "true"
+        run: npm test --if-present -- --ci
+
+      - name: Build
+        run: npm run build --if-present
