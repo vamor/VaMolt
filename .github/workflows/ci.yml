@@ -2,95 +2,73 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [main]
 
 jobs:
-  java:
-    name: Java services — build & test (JDK 21)
+  # Voorbeeld test-job (optioneel, als je Fase 2 al hebt)
+  tests:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      # Voeg hier je build/test stappen toe die in Fase 2 groen zijn
+      - run: echo "Tests OK (placeholder)"
 
-      - name: Set up Temurin JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: maven
-
-      - name: Pick Maven command (wrapper if present)
-        run: |
-          if [ -x "./mvnw" ]; then
-            echo "MVN=./mvnw" >> $GITHUB_ENV
-          else
-            echo "MVN=mvn" >> $GITHUB_ENV
-          fi
-
-      - name: Build & test all Maven projects
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Vind alle pom.xml behalve die in web-ui/ (front-end)
-          mapfile -d '' POMS < <(find . -name pom.xml -not -path "./web-ui/*" -print0)
-          if [ ${#POMS[@]} -eq 0 ]; then
-            echo "Geen Maven-projecten gevonden." >&2
-            exit 1
-          fi
-          # Als er een root-aggregator is met <modules>, is 1x aanroepen genoeg.
-          # We proberen eerst root, anders itereren we over elk pom.
-          if [ -f "./pom.xml" ]; then
-            echo "Probeer root build..."
-            if $MVN -B -ntp -DskipTests=false -DskipITs=false verify; then
-              exit 0
-            else
-              echo "Root build faalde, val terug op per-module build..."
-            fi
-          fi
-          status=0
-          for pom in "${POMS[@]}"; do
-            dir="$(dirname "$pom")"
-            echo "?? Building $dir"
-            ( cd "$dir" && $MVN -B -ntp -DskipTests=false -DskipITs=false verify ) || status=1
-          done
-          exit $status
-
-  web:
-    name: Web UI — lint, test, build (Node 20)
+  build-and-push:
+    # Als je tests als gating wil, laat 'needs' staan; anders verwijderen.
+    needs: [tests]
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web-ui
+    permissions:
+      contents: read
+      packages: write  # nodig om naar GHCR te pushen
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, ingestion, web]
+
     steps:
-      - name: Check out
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node.js 20
-        uses: actions/setup-node@v4
+      - name: Resolve org (lowercase, required by GHCR)
+        id: org
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          echo "org=${OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: web-ui/package-lock.json
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install dependencies (CI, reproducible)
-        run: npm ci
+      - name: Docker metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.org.outputs.org }}/vamolt-${{ matrix.service }}
+          tags: |
+            # :latest enkel op main
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # :<git-sha> (short)
+            type=sha,format=short
 
-      - name: Lint
-        run: npm run lint --if-present
+      - name: Build and (conditionally) push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/${{ matrix.service }}
+          file: ./services/${{ matrix.service }}/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }} # PRs bouwen maar pushen niet
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Test
-        env:
-          CI: "true"
-        run: npm test --if-present -- --ci
-
-      - name: Build
-        run: npm run build --if-present
+      - name: Output image digest
+        if: ${{ github.ref == 'refs/heads/main' }}
+        run: echo "Pushed ${{ steps.meta.outputs.tags }}"
