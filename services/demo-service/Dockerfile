@@ -3,6 +3,9 @@ FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /app
 
 # Kopieer alleen wat nodig is uit de service-map
+COPY pom.xml app/parent.pom
+RUN --mount=type=cache,target=/root/.m2 mvn -B -q -f /app/parent.pom -DskipTests install
+
 COPY services/demo-service/pom.xml ./pom.xml
 COPY services/demo-service/src ./src
 # (Als je wrapper gebruikt:)
@@ -10,7 +13,7 @@ COPY services/demo-service/src ./src
 # COPY services/demo-service/mvnw ./mvnw
 
 # Bouw (skip tests in image build)
-RUN mvn -B -q -DskipTests package
+RUN --mount=type=cache,target=/root/.m2 mvn -B -q -DskipTests package
 
 # ---- Runtime stage ----
 FROM eclipse-temurin:21-jre
