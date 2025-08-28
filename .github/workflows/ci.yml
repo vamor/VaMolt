@@ -6,22 +6,46 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  # Voorbeeld test-job (optioneel, als je Fase 2 al hebt)
-  tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      # Voeg hier je build/test stappen toe die in Fase 2 groen zijn
-      - run: echo "Tests OK (placeholder)"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
-  build-and-push:
-    # Als je tests als gating wil, laat 'needs' staan; anders verwijderen.
-    needs: [tests]
+jobs:
+  tests:
+    name: Build & Test
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write  # nodig om naar GHCR te pushen
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ?? Voeg hier je bestaande Fase-2 build/test stappen toe.
+      # Voorbeeld placeholders (verwijder/aanpassen aan je stack):
+      - name: Set up Node (voor web)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            services/web/package-lock.json
+      - name: Web - install & test
+        working-directory: services/web
+        run: |
+          npm ci
+          npm test --silent || true   # pas aan / verwijder indien niet van toepassing
+
+      - name: API/ingestion - placeholder tests
+        run: |
+          echo "Voer hier je API/ingestion tests uit (bv. go test, pytest, mvn test, ...)"
+
+  build-and-push:
+    name: Docker Build & Push (GHCR)
+    needs: [tests]           # laat dit staan als je tests gating wil
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write        # nodig om naar GHCR te pushen
     strategy:
       fail-fast: false
       matrix:
@@ -31,11 +55,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve org (lowercase, required by GHCR)
+      - name: Resolve org (lowercase, GHCR vereist)
         id: org
-        run: |
-          OWNER="${GITHUB_REPOSITORY_OWNER}"
-          echo "org=${OWNER,,}" >> "$GITHUB_OUTPUT"
+        run: echo "org=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -53,22 +75,25 @@ jobs:
         with:
           images: ghcr.io/${{ steps.org.outputs.org }}/vamolt-${{ matrix.service }}
           tags: |
-            # :latest enkel op main
+            # :latest alleen op main
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            # :<git-sha> (short)
+            # :<git-sha> (short) altijd
             type=sha,format=short
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and (conditionally) push
         uses: docker/build-push-action@v6
         with:
           context: ./services/${{ matrix.service }}
           file: ./services/${{ matrix.service }}/Dockerfile
-          push: ${{ github.ref == 'refs/heads/main' }} # PRs bouwen maar pushen niet
+          push: ${{ github.ref == 'refs/heads/main' }}        # PRs: build-only; main: push
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Output image digest
+      - name: Output image tags
         if: ${{ github.ref == 'refs/heads/main' }}
-        run: echo "Pushed ${{ steps.meta.outputs.tags }}"
+        run: echo "Pushed tags: ${{ steps.meta.outputs.tags }}"
