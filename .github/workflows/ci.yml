@@ -43,7 +43,7 @@ jobs:
       matrix:
         include:
           - service: api
-            context: ./services/demo-service
+            context: .
             dockerfile: ./services/demo-service/Dockerfile
 
     steps:
