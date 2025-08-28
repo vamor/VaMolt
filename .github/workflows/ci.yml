@@ -90,4 +90,6 @@ jobs:
 
       - name: Output image tags
         if: ${{ github.ref == 'refs/heads/main' }}
-        run: echo "Pushed: ${{ steps.meta.outputs.tags }}"
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: echo Pushed "$TAGS"
