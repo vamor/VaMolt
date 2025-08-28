@@ -17,7 +17,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -27,7 +28,7 @@ jobs:
           cache: maven
 
       - name: Maven test (demo-service)
-        working-directory: demo-service
+        working-directory: services/demo-service
         run: mvn -q -B test
 
   build-and-push:
@@ -38,13 +39,16 @@ jobs:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - service: api
-            context: ./demo-service
-            dockerfile: ./demo-service/Dockerfile
+            context: ./services/demo-service
+            dockerfile: ./services/demo-service/Dockerfile
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Resolve org (lowercase, GHCR vereist)
         id: org
