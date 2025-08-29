@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vamolt-api
+  namespace: vamor    # ? bv. default, of later 'vamolt'
+  labels:
+    app: vamolt-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vamolt-api
+  template:
+    metadata:
+      labels:
+        app: vamolt-api
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/vamor/vamolt-api:sha-1369454   # ? zie uitleg hieronder
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vamolt-api
+  namespace: vamor    # zelfde als hierboven
+spec:
+  selector:
+    app: vamolt-api
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
