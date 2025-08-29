@@ -1,0 +1,2 @@
+VaMolt API deployed as {{ include "vamolt-api.fullname" . }}.
+Service type: {{ .Values.service.type }} on port {{ .Values.service.port }}.
