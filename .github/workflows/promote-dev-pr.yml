@@ -1,0 +1,46 @@
+name: promote-dev-pr
+on:
+  workflow_run:
+    workflows: [ build-and-publish ]
+    types: [ completed ]
+
+jobs:
+  open-pr:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Compute short SHA
+        id: prep
+        run: echo "SHORT_SHA=${{ github.event.workflow_run.head_sha }}" | cut -c1-7 | awk '{print "SHORT_SHA="$1}' >> $GITHUB_OUTPUT
+
+      - name: Checkout GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: vamor/vamolt-gitops
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Install yq
+        run: sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 && sudo chmod +x /usr/local/bin/yq
+
+      - name: Update dev Application image tag
+        run: |
+          SHORT="${{ steps.prep.outputs.SHORT_SHA }}"
+          yq -i '
+            .spec.source.helm.parameters |=
+            (map(if .name == "image.tag" then .value = "sha-'$SHORT'" else . end))
+          ' gitops/apps/vamolt-api-dev.yaml
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+          branch: chore/promote-dev-${{ steps.prep.outputs.SHORT_SHA }}
+          commit-message: "promote(dev): vamolt-api -> sha-${{ steps.prep.outputs.SHORT_SHA }}"
+          title: "Promote dev to sha-${{ steps.prep.outputs.SHORT_SHA }}"
+          body: "Image: ghcr.io/vamor/vamolt-api:sha-${{ steps.prep.outputs.SHORT_SHA }}"
+          labels: promotion
