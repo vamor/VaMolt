@@ -1,0 +1,55 @@
+name: promote-to-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to promote (leave empty to copy current dev)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      GITOPS_REPO: vamor/VaMolt-gitops
+      VALUES_DEV: values/dev/vamolt-api-values.yaml
+      VALUES_PROD: values/prod/vamolt-api-values.yaml
+    steps:
+      - name: Fetch current dev tag (or use input)
+        id: gettag
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
+          else
+            git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/${GITOPS_REPO}.git
+            TAG=$(grep -E '^[[:space:]]*tag:' VaMolt-gitops/${VALUES_DEV} | sed -E 's/.*tag:[[:space:]]*"?([^"]+)"?/\1/')
+            echo "Using dev tag: $TAG"
+            echo "TAG=$TAG" >> $GITHUB_ENV
+          fi
+
+      - name: Prepare prod bump
+        run: |
+          cd VaMolt-gitops || git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/${GITOPS_REPO}.git && cd VaMolt-gitops
+          sed -i -E 's#(^[[:space:]]*tag:[[:space:]]*).*#\1"'${TAG}'"#' ${VALUES_PROD}
+
+      - name: Open PR to VaMolt-gitops (prod)
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GH_PAT }}
+          path: VaMolt-gitops
+          commit-message: "chore(prod): promote vamolt-api to ${TAG}"
+          branch: chore/promote-prod-${{ github.run_id }}
+          title: "chore(prod): promote vamolt-api to ${TAG}"
+          body: |
+            Promotion PR from `${{ github.repository }}`
+            - Source: **dev** tag `${TAG}`
+            - Target: **prod**
+          base: main
+          labels: |
+            env:prod
+            needs-approval
