@@ -1,0 +1,15 @@
+.git
+.gitignore
+.github
+charts
+argocd
+VaMolt-gitops
+node_modules
+**/target
+**/.mvn/wrapper/*
+**/*.iml
+.idea
+.vscode
+Dockerfile
+docker-compose.yml
+*.dockerbuild

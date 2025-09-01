@@ -45,7 +45,7 @@ jobs:
       - name: Build & push
         uses: docker/build-push-action@v6
         with:
-          context: ./services/demo-service
+          context: .
           file: ./services/demo-service/Dockerfile
           push: true
           # Voor single-arch (meest voorkomend): laat 'platforms' weg
