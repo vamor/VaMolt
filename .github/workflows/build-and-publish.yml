@@ -1,10 +1,12 @@
 name: build-and-publish
+
 on:
   push:
     branches: [ main ]
     paths:
-      - 'src/**'
-      - 'charts/**'
+      - 'services/demo-service/**'
+      - '.github/workflows/build-and-publish.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,6 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Optioneel: alleen nodig als je straks multi-arch (arm64) wil bouwen
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -23,11 +32,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Labels (provenance) + hergebruik van tags
+      - name: Extract metadata (labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/vamor/vamolt-api
+          tags: |
+            type=raw,value=latest
+            type=raw,value=sha-${{ github.sha }}
+
       - name: Build & push
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./services/demo-service
+          file: ./services/demo-service/Dockerfile
           push: true
-          tags: |
-            ghcr.io/vamor/vamolt-api:latest
-            ghcr.io/vamor/vamolt-api:sha-${{ github.sha }}
+          # Voor single-arch (meest voorkomend): laat 'platforms' weg
+          # Voor multi-arch (bijv. Synology ARM + x86):
+          # platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
