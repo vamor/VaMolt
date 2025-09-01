@@ -72,7 +72,7 @@ jobs:
           branch: chore/update-dev-${{ github.sha }}
           title: "chore(dev): bump vamolt-api to ${IMAGE_TAG}"
           body: "Automated PR from VaMolt build `${{ github.sha }}`"
-          base: main
+          base: master
           labels: |
             env:dev
             automerge
