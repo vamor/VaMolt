@@ -11,29 +11,40 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+
     steps:
       - name: Compute short SHA
         id: prep
-        run: echo "SHORT_SHA=${{ github.event.workflow_run.head_sha }}" | cut -c1-7 | awk '{print "SHORT_SHA="$1}' >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          echo "SHORT_SHA=${SHA:0:7}" >> "$GITHUB_OUTPUT"
 
+      # Checkout van HET GITOPS REPO (kruis-repo => token nodig)
       - name: Checkout GitOps repo
         uses: actions/checkout@v4
         with:
           repository: vamor/vamolt-gitops
-          token: ${{ secrets.GITOPS_TOKEN }}
           path: gitops
+          fetch-depth: 0
+          token: ${{ secrets.GITOPS_TOKEN }}  # <-- PAT secret met minstens Contents:RW + Pull requests:RW
 
       - name: Install yq
-        run: sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 && sudo chmod +x /usr/local/bin/yq
+        shell: bash
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
-      - name: Update dev Application image tag
+      # Update DEV values-file dat je Application gebruikt
+      - name: Update dev values image tag (valueFiles)
+        shell: bash
         run: |
           SHORT="${{ steps.prep.outputs.SHORT_SHA }}"
-          yq -i '
-            .spec.source.helm.parameters |=
-            (map(if .name == "image.tag" then .value = "sha-'$SHORT'" else . end))
-          ' gitops/apps/vamolt-api-dev.yaml
+          FILE="gitops/values/dev/vamolt-api-values.yaml"
+          # Zorg dat 'image:' bestaat en zet de tag
+          yq -i '.image.tag = "sha-'$SHORT'"' "$FILE"
 
+      # Maak de PR terug naar vamor/vamolt-gitops
       - name: Create PR
         uses: peter-evans/create-pull-request@v6
         with:
@@ -42,5 +53,7 @@ jobs:
           branch: chore/promote-dev-${{ steps.prep.outputs.SHORT_SHA }}
           commit-message: "promote(dev): vamolt-api -> sha-${{ steps.prep.outputs.SHORT_SHA }}"
           title: "Promote dev to sha-${{ steps.prep.outputs.SHORT_SHA }}"
-          body: "Image: ghcr.io/vamor/vamolt-api:sha-${{ steps.prep.outputs.SHORT_SHA }}"
+          body: |
+            Image: ghcr.io/vamor/vamolt-api:sha-${{ steps.prep.outputs.SHORT_SHA }}
+            Updated file: values/dev/vamolt-api-values.yaml
           labels: promotion
