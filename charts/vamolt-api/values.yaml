@@ -2,12 +2,14 @@ replicaCount: 2
 
 image:
   repository: ghcr.io/vamor/vamolt-api
-  # Keep generic here; Argo CD Application will set the exact sha
+  # Argo/CI zal de tag overriden
   tag: latest
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
-  name: ghcr-pull
+
+nameOverride: ""
+fullnameOverride: ""
 
 serviceAccount:
   create: false
@@ -21,13 +23,10 @@ securityContext: {}
 
 service:
   type: ClusterIP
-  # Expose 80 inside the cluster; maps to container 8080 via targetPort: http
   port: 80
 
 container:
-  # Container listens on 8080
   port: 8080
-  # Use your actuator endpoints (adjust if different)
   livenessProbe:
     httpGet:
       path: /actuator/health/liveness
@@ -54,12 +53,3 @@ tolerations: []
 affinity: {}
 
 env: []
-# Example:
-# env:
-#   - name: ASPNETCORE_ENVIRONMENT
-#     value: "Production"
-#   - name: CONNECTION_STRING
-#     valueFrom:
-#       secretKeyRef:
-#         name: vamolt-api
-#         key: connectionString
